@@ -1,4 +1,4 @@
-package mymusicplayer;
+ package mymusicplayer;
 
 import javax.swing.*;
 import java.awt.*;
@@ -19,9 +19,12 @@ import javazoom.jl.decoder.JavaLayerException;
 import javazoom.jl.player.advanced.AdvancedPlayer;
 import javax.swing.JOptionPane;
 import java.io.FileNotFoundException;
- 
+import javax.swing.DefaultListModel;
+import javax.swing.JList;
+import javax.swing.ListSelectionModel;
+import javax.swing.JScrollPane;
 
-public class MyMusicPlayer extends JFrame {
+public class MyMusicPlayer extends JFrame implements MusicPlayer {
     private PlayList playlist;
     private JButton playButton, pauseButton, nextButton, prevButton, addButton;
     private JButton volumeUpButton, volumeDownButton;
@@ -33,6 +36,10 @@ public class MyMusicPlayer extends JFrame {
     private JSlider volumeSlider;
     private JPanel equalizerPanel;
     private Timer timer;
+    private JList<String> songList;
+    private DefaultListModel<String> songListModel;
+    private int[] frequencyLevels; // Declare frequencyLevels here
+    private AudioDispatcher dispatcher;
 
     public MyMusicPlayer() {
         playlist = new PlayList();
@@ -44,6 +51,9 @@ public class MyMusicPlayer extends JFrame {
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         setSize(400, 300);
         setLayout(new BorderLayout());
+
+        // Set background color
+        getContentPane().setBackground(new Color(0, 0, 139)); // Dark blue color
 
         // Volume Control
         volumeSlider = new JSlider(0, 100, 50);
@@ -57,13 +67,13 @@ public class MyMusicPlayer extends JFrame {
         buttonPanel.setBackground(new Color(50, 50, 50)); // Darker button panel
         buttonPanel.setLayout(new FlowLayout());
 
-        playButton = createButton("Play");
-        pauseButton = createButton("Pause");
-        nextButton = createButton("Next");
-        prevButton = createButton("Previous");
-        addButton = createButton("Add Song");
-        volumeUpButton = createButton("v+");
-        volumeDownButton = createButton("v-");
+        playButton = createButton("", new Color(70, 130, 180), Color.WHITE, "src/mymusicplayer/icons/play (4).png");
+        pauseButton = createButton("", new Color(70, 130,180), Color.WHITE, "src/mymusicplayer/icons/pause.png");
+        nextButton = createButton("", new Color(70, 130,180), Color.WHITE, "src/mymusicplayer/icons/f.png");
+        prevButton = createButton("", new Color(70, 130,180), Color.WHITE,"src/mymusicplayer/icons/p.png"); // No icon for previous
+        addButton = createButton("Add Song", new Color( 70, 130,180), Color.WHITE, null); // No icon for add song
+        volumeUpButton = createButton("v+", new Color( 70, 130,180), Color.WHITE, null); // No icon for volume up
+        volumeDownButton = createButton("v-", new Color( 70, 130,180), Color.WHITE, null); // No icon for volume down
 
         buttonPanel.add(prevButton);
         buttonPanel.add(playButton);
@@ -76,9 +86,13 @@ public class MyMusicPlayer extends JFrame {
         // Create song info panel
         currentSongLabel = new JLabel("No song playing", SwingConstants.CENTER);
         currentSongLabel.setForeground(Color.WHITE); // White text for song info
+        currentSongLabel.setBackground(new Color(30, 30, 30)); // Dark background
+        currentSongLabel.setOpaque(true); // Make background visible
 
         // Create album art label
         albumArtLabel = new JLabel(new ImageIcon("path/to/default/icon.png"), SwingConstants.CENTER);
+        albumArtLabel.setBackground(new Color(30, 30, 30)); // Dark background
+        albumArtLabel.setOpaque(true); // Make background visible
 
         // Equalizer Panel
         equalizerPanel = new JPanel() {
@@ -90,122 +104,157 @@ public class MyMusicPlayer extends JFrame {
         };
         equalizerPanel.setPreferredSize(new Dimension(400, 150));
 
+        // Initialize the song list model and JList
+        songListModel = new DefaultListModel<>();
+        songList = new JList<>(songListModel);
+        songList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        JScrollPane songListScrollPane = new JScrollPane(songList);
+        songListScrollPane.setPreferredSize(new Dimension(150, 200)); // Set preferred size
+
         // Add components to frame
         add(albumArtLabel, BorderLayout.CENTER);
         add(currentSongLabel, BorderLayout.NORTH);
         add(buttonPanel, BorderLayout.SOUTH);
         add(equalizerPanel, BorderLayout.CENTER);
+        add(songListScrollPane, BorderLayout.WEST); // Add to the left side of the frame
 
         // Add button listeners
         addButton.addActionListener(e -> addSong());
         playButton.addActionListener(e -> playSong());
         pauseButton.addActionListener(e -> pauseSong());
-        nextButton.addActionListener(e -> playNext());
-        prevButton.addActionListener(e -> playPrevious());
+        nextButton.addActionListener(e -> nextSong());
+        prevButton.addActionListener(e -> previousSong());
         volumeUpButton.addActionListener(e -> increaseVolume());
         volumeDownButton.addActionListener(e -> decreaseVolume());
     }
 
-    private JButton createButton(String text) {
+    private JButton createButton(String text, Color backgroundColor, Color textColor, String iconPath) {
         JButton button = new JButton(text);
-        button.setBackground(new Color(70, 130, 180)); // Steel blue color
-        button.setForeground(Color.WHITE); // White text
+        button.setBackground(backgroundColor);
+        button.setForeground(textColor);
         button.setFocusPainted(false);
         button.setBorderPainted(false);
-        button.setPreferredSize(new Dimension(80, 30));
+        button.setPreferredSize(new Dimension(100, 40)); // Adjust size as needed
+
+        // Set the icon
+        if (iconPath != null) {
+            ImageIcon icon = new ImageIcon(iconPath);
+            // Scale the icon to fit the button
+            Image scaledImage = icon.getImage().getScaledInstance(30, 30, Image.SCALE_SMOOTH);
+            button.setIcon(new ImageIcon(scaledImage));
+            button.setHorizontalTextPosition(SwingConstants.CENTER); // Center text horizontally
+            button.setVerticalTextPosition(SwingConstants.BOTTOM); // Position text below the icon
+        }
+
         button.setFont(new Font("Arial", Font.BOLD, 12));
+        
         return button;
     }
 
-    private void addSong() {
-        JFileChooser fileChooser = new JFileChooser();
-        fileChooser.setCurrentDirectory(new File(System.getProperty("user.home")));
-        FileNameExtensionFilter filter = new FileNameExtensionFilter("Audio Files", "wav", "mp3");
-        fileChooser.setFileFilter(filter);
-
-        int result = fileChooser.showOpenDialog(this);
-
-        if (result == JFileChooser.APPROVE_OPTION) {
-            File selectedFile = fileChooser.getSelectedFile();
-            String defaultAlbumArtPath = "path/to/default/icon.png"; // Change this to your default path
-            playlist.addSong(selectedFile.getName(), selectedFile.getAbsolutePath(), defaultAlbumArtPath);
-            JOptionPane.showMessageDialog(this, "Song added to playlist!");
-        }
-    }
-
-    private void playSong() {
+    @Override
+    public void playSong() {
         try {
             if (playlist.getCurrentSong() != null) {
-                // Close the previous player if it exists
                 if (player != null) {
                     player.close();
                 }
 
-                // Open the MP3 file
+                // Stop the audio dispatcher if it's running
+                stopAudioDispatcher();
+
                 File mp3File = new File(playlist.getCurrentSong().getPath());
-                System.out.println("Attempting to play: " + mp3File.getAbsolutePath());
                 FileInputStream fis = new FileInputStream(mp3File);
                 BufferedInputStream bis = new BufferedInputStream(fis);
-
-                // Create an instance of AdvancedPlayer
                 player = new AdvancedPlayer(bis);
-
-                // Start playing in a new thread
                 new Thread(() -> {
                     try {
                         player.play();
-                    } catch (JavaLayerException e) {
+                        analyzeAudioFrequencies(); // Start analyzing frequencies
+                    } catch (Exception e) {
                         JOptionPane.showMessageDialog(this, "Error playing audio: " + e.getMessage());
                     }
                 }).start();
 
-                // Update UI with album art and current song label
-                String albumArtPath = playlist.getCurrentSong().getAlbumArtPath();
-                File albumArtFile = new File(albumArtPath);
-                if (albumArtFile.exists()) {
-                    albumArtLabel.setIcon(new ImageIcon(albumArtPath));
-                } else {
-                    albumArtLabel.setIcon(new ImageIcon("path/to/default/icon.png"));
-                }
-
-                // Set the current song label
                 currentSongLabel.setText("Now playing: " + playlist.getCurrentSong().getTitle());
                 isPlaying = true;
+                startEqualizer(); // Start the equalizer
             }
-        } catch (FileNotFoundException e) {
-            JOptionPane.showMessageDialog(this, "File not found: " + e.getMessage());
         } catch (Exception e) {
             JOptionPane.showMessageDialog(this, "Error playing song: " + e.getMessage());
         }
     }
 
-    private void pauseSong() {
+    @Override
+    public void pauseSong() {
         if (player != null && isPlaying) {
             player.close();
             isPlaying = false;
+            stopEqualizer(); // Stop the equalizer
+            stopAudioDispatcher(); // Stop the audio dispatcher if it's running
         }
     }
 
-    private void playNext() {
+    @Override
+    public void stopSong() {
+        if (player != null) {
+            player.close();
+            isPlaying = false;
+            stopEqualizer(); // Stop the equalizer
+        }
+    }
+
+    @Override
+    public void addSong(String title, String path, String albumArtPath) {
+        playlist.addSong(title, path, albumArtPath);
+        songListModel.addElement(title); // Add song to the JList
+        JOptionPane.showMessageDialog(this, "Song added to playlist!");
+    }
+
+    @Override
+    public void nextSong() {
         if (player != null) {
             player.close();
         }
+        stopAudioDispatcher(); // Stop the audio dispatcher if it's running
         playlist.nextSong();
         playSong();
     }
 
-    private void playPrevious() {
+    @Override
+    public void previousSong() {
         if (player != null) {
             player.close();
         }
+        stopAudioDispatcher(); // Stop the audio dispatcher if it's running
         playlist.previousSong();
         playSong();
+    }
+
+    @Override
+    public void setVolume(float volume) {
+        this.volume = volume;
+        // Implement volume adjustment logic here
+    }
+
+    @Override
+    public float getVolume() {
+        return volume;
+    }
+
+    private void setPlayerVolume(float volume) {
+        // Assuming the AdvancedPlayer has a method to set volume
+        if (player != null) {
+            // This is a placeholder; you need to implement the actual volume adjustment logic
+            // For example, if using a library that supports volume adjustment, apply it here
+            // player.setVolume(volume); // Uncomment and implement this line based on your audio library
+        }
     }
 
     private void increaseVolume() {
         if (volume < 1.0f) {
             volume += 0.1f; // Increase volume by 10%
             System.out.println("Volume increased to: " + volume);
+            setPlayerVolume(volume); // Apply the volume change
         }
     }
 
@@ -213,20 +262,24 @@ public class MyMusicPlayer extends JFrame {
         if (volume > 0.0f) {
             volume -= 0.1f; // Decrease volume by 10%
             System.out.println("Volume decreased to: " + volume);
+            setPlayerVolume(volume); // Apply the volume change
         }
     }
 
     private void drawEqualizer(Graphics g) {
-        int barWidth = 10;
-        int barHeight;
-        int[] frequencyLevels = new int[40]; // Array to hold frequency levels
+        int barWidth = 20; // Increased bar width for larger bars
+        frequencyLevels = new int[40]; // Initialize frequencyLevels here
 
         // Generate random frequency levels for demonstration
         for (int i = 0; i < frequencyLevels.length; i++) {
-            frequencyLevels[i] = (int) (Math.random() * 100);
+            frequencyLevels[i] = (int) (Math.random() * 150); // Increased max height for bars
             g.setColor(Color.GREEN);
             g.fillRect(i * barWidth, 150 - frequencyLevels[i], barWidth - 1, frequencyLevels[i]);
         }
+
+        // Load and draw the image with a larger size
+        ImageIcon equalizerImage = new ImageIcon("path/to/equalizer/image.png"); // Update with your image path
+        g.drawImage(equalizerImage.getImage(), 0, 0, 800, 300, null); // Draw the image larger
 
         // Change album art based on frequency levels
         updateAlbumArt(frequencyLevels);
@@ -248,7 +301,9 @@ public class MyMusicPlayer extends JFrame {
             albumArtPath = "path/to/high_frequency_art.png"; // High frequency art
         }
 
-        albumArtLabel.setIcon(new ImageIcon(albumArtPath));
+        // Update the album art label with the new image
+        ImageIcon albumArtIcon = new ImageIcon(albumArtPath);
+        albumArtLabel.setIcon(albumArtIcon);
     }
 
     private void startEqualizer() {
@@ -263,7 +318,8 @@ public class MyMusicPlayer extends JFrame {
 
     private void stopEqualizer() {
         if (timer != null) {
-            timer.stop();
+            timer.stop(); // Stop the timer
+            timer = null; // Clear the reference
         }
     }
 
@@ -272,11 +328,12 @@ public class MyMusicPlayer extends JFrame {
             File mp3File = new File(playlist.getCurrentSong().getPath());
             
             if (!mp3File.exists()) {
-                JOptionPane.showMessageDialog(this, "File not found: " + mp3File.getPath());
+                // Log the error instead of showing a message
+                System.err.println("File not found: " + mp3File.getPath());
                 return;
             }
 
-            AudioDispatcher dispatcher = AudioDispatcherFactory.fromFile(mp3File, 1024, 512);
+            dispatcher = AudioDispatcherFactory.fromFile(mp3File, 1024, 512);
             
             PitchDetectionHandler handler = new PitchDetectionHandler() {
                 @Override
@@ -291,8 +348,52 @@ public class MyMusicPlayer extends JFrame {
             dispatcher.addAudioProcessor(new PitchProcessor(PitchEstimationAlgorithm.YIN, 44100, 1024, handler));
             new Thread(dispatcher, "Audio Dispatcher").start();
 
+            // Update frequency levels and redraw equalizer
+            frequencyLevels = new int[40]; // Ensure frequencyLevels is initialized
+            for (int i = 0; i < frequencyLevels.length; i++) {
+                frequencyLevels[i] = (int) (Math.random() * 100); // Replace with actual frequency analysis
+            }
+            equalizerPanel.repaint(); // Trigger a repaint to update the equalizer display
+
         } catch (Exception e) {
-            JOptionPane.showMessageDialog(this, "Error analyzing audio: " + e.getMessage());
+            // Log the error instead of showing a message
+            System.err.println("Error analyzing audio: " + e.getMessage());
+        }
+    }
+
+    private void addSong() {
+        JFileChooser fileChooser = new JFileChooser();
+        fileChooser.setCurrentDirectory(new File(System.getProperty("user.home")));
+        FileNameExtensionFilter filter = new FileNameExtensionFilter("Audio Files", "wav", "mp3");
+        fileChooser.setFileFilter(filter);
+
+        int result = fileChooser.showOpenDialog(this);
+
+        if (result == JFileChooser.APPROVE_OPTION) {
+            File selectedFile = fileChooser.getSelectedFile();
+            String title = selectedFile.getName(); // Use the file name as the title
+            String path = selectedFile.getAbsolutePath();
+            String defaultAlbumArtPath = "path/to/default/icon.png"; // Change this to your default path
+
+            // Call the addSong method with the required parameters
+            playlist.addSong(title, path, defaultAlbumArtPath);
+            songListModel.addElement(title); // Add song to the JList
+            JOptionPane.showMessageDialog(this, "Song added to playlist!");
+        }
+    }
+
+    @Override
+    public String getCurrentSongInfo() {
+        // Implement logic to return current song information
+        return playlist.getCurrentSong() != null ? playlist.getCurrentSong().getTitle() : "No song playing";
+    }
+
+    private void stopAudioDispatcher() {
+        // Implement logic to stop the audio dispatcher if it's running
+        // This may involve keeping a reference to the dispatcher and stopping it
+        // For example:
+        if (dispatcher != null) {
+            dispatcher.stop(); // Assuming you have a reference to the dispatcher
         }
     }
 
